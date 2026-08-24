@@ -22,22 +22,22 @@ def pinball(y,p):
     e=np.asarray(y).reshape(-1,1)-p
     return np.mean(np.maximum(Q*e,(Q-1)*e))
 
-
 if __name__=="__main__":
     X,y=load_bakery(include_date=True,one_hot_encoding=True,return_X_y=True)
     X_train,X_val,X_test,y_train,y_val,y_test=time_split(X,y)
     X_train, X_val, X_test=X_train.drop(columns="date"),X_val.drop(columns="date"),X_test.drop(columns="date")
 
     models=[SQRNet,MQRNet,PMQRNet,MonoNet,NCMQRNet]
-    lams=[.1,1,10,100]
+    lams=[.1,1,10]
     reg = 1e-1
     results={}
     for cls in models:
-        best=(np.inf,None,None)
+        best=(np.inf,None)
         for lam in (lams if cls is PMQRNet else [10]):
             m=fit(cls,X_train,y_train,X_val,y_val,reg=reg,lam=lam)
             score=pinball(y_val,pred(m,X_val))
-            if score<best[0]: best=(score,reg,lam)
+            if score<best[0]:
+                best=(score,lam)
         score,lam=best
         m=fit(cls,X_train,y_train,X_val,y_val,reg=reg,lam=lam)
         test=pinball(y_test,pred(m,X_test))
