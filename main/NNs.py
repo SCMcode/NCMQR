@@ -7,7 +7,7 @@ from tensorflow.keras.regularizers import l2
 Q=np.array([.5,.6,.7,.8,.9,.95],dtype=np.float32)
 
 class SQRNet(Model):
-    def __init__(self,hidden_units=128,activation="relu",reg=0):
+    def __init__(self,hidden_units=64,activation="relu",reg=0):
         super().__init__()
         r=l2(reg) if reg>0 else None
         self.h1=Dense(hidden_units,activation=activation,kernel_regularizer=r)
@@ -17,7 +17,7 @@ class SQRNet(Model):
         return self.out(self.h2(self.h1(x)))
 
 class MQRNet(Model):
-    def __init__(self,q_values,hidden_units=128,activation="relu",reg=0):
+    def __init__(self,q_values,hidden_units=64,activation="relu",reg=0):
         super().__init__()
         r=l2(reg) if reg>0 else None
         self.h1=Dense(hidden_units,activation=activation,kernel_regularizer=r)
@@ -30,7 +30,7 @@ class PMQRNet(MQRNet):
     pass
 
 class MonoNet(Model):
-    def __init__(self,q_values,hidden_units=128,activation="relu",reg=0):
+    def __init__(self,q_values,hidden_units=64,activation="relu",reg=0):
         super().__init__()
         r=l2(reg) if reg>0 else None
         self.h1=Dense(hidden_units,activation=activation,kernel_regularizer=r)
@@ -46,7 +46,7 @@ def huber_activation(x,delta=2**-8):
     return tf.where(a<=delta,.5*tf.square(x)/delta,a-.5*delta)
 
 class NCMQRNet(Model):
-    def __init__(self,q_values,hidden_units=128,activation="sigmoid",reg=0):
+    def __init__(self,q_values,hidden_units=64,activation="sigmoid",reg=0):
         super().__init__()
         r=l2(reg) if reg>0 else None
         self.q_values=q_values
@@ -58,7 +58,7 @@ class NCMQRNet(Model):
         W=tf.expand_dims(x,-1)*self.U
         return tf.squeeze(tf.matmul(tf.expand_dims(x,1),W),axis=1)
 
-def fit(model_class,xtr,ytr,xv,yv,lam=10,reg=0,lr=1e-3,epochs=500,patience=30,**kwargs):
+def fit(model_class,xtr,ytr,xv,yv,lam=10,reg=0,lr=1e-3,epochs=300,patience=10,**kwargs):
     def loss(y,p):
         e=tf.reshape(y,(-1,1))-p
         L=tf.reduce_mean(tf.maximum(Q*e,(Q-1)*e))
@@ -71,7 +71,7 @@ def fit(model_class,xtr,ytr,xv,yv,lam=10,reg=0,lr=1e-3,epochs=500,patience=30,**
             def sloss(y,p,q=q):
                 e=tf.reshape(y,(-1,1))-p
                 return tf.reduce_mean(tf.maximum(q*e,(q-1)*e))
-            m.compile(tf.keras.optimizers.Adam(lr),sloss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,callbacks=[es()],verbose=0); ms.append(m)
+            m.compile(tf.keras.optimizers.Adam(lr),sloss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,batch_size=256,callbacks=[es()],verbose=1); ms.append(m)
         return ms
     m=model_class(Q,reg=reg,**kwargs); m.compile(tf.keras.optimizers.Adam(lr),loss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,callbacks=[es()],verbose=0); return m
 
