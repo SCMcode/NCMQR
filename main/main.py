@@ -1,100 +1,124 @@
-from datasets import load_yaz,load_bakery
-from sklearn.model_selection import train_test_split
-import pandas as pd
 import numpy as np
-from main.NNs import SQRNet,MQRNet,PMQRNet,MonoNet,NCMQRNet,fit,pred
+import pandas as pd
+import tensorflow as tf
+from scipy.stats import t,wilcoxon
 from sklearn.isotonic import IsotonicRegression
+from datasets import load_bakery
+from main.NNs import SQRNet,MQRNet,PMQRNet,MonoNet,NCMQRNet,fit,pred
 
-
+Q=np.array([.5,.6,.7,.8,.9,.95],dtype=np.float32)
 
 def time_split(X,y,train_ratio=.6,val_ratio=.2):
-    X=X.copy()
-    X["date"]=pd.to_datetime(X["date"])
-    dates=X["date"].sort_values().unique()
-    d1=dates[int(len(dates)*train_ratio)]
-    d2=dates[int(len(dates)*(train_ratio+val_ratio))]
-    train=X["date"]<d1
-    val=(X["date"]>=d1)&(X["date"]<d2)
-    test=X["date"]>=d2
-    return X.loc[train].reset_index(drop=True),X.loc[val].reset_index(drop=True),X.loc[test].reset_index(drop=True),y.loc[train].reset_index(drop=True),y.loc[val].reset_index(drop=True),y.loc[test].reset_index(drop=True)
+    X=X.copy(); X["date"]=pd.to_datetime(X["date"]); dates=np.sort(X["date"].unique())
+    d1,d2=dates[int(len(dates)*train_ratio)],dates[int(len(dates)*(train_ratio+val_ratio))]
+    tr=X["date"]<d1; va=(X["date"]>=d1)&(X["date"]<d2); te=X["date"]>=d2
+    return X.loc[tr].reset_index(drop=True),X.loc[va].reset_index(drop=True),X.loc[te].reset_index(drop=True),y.loc[tr].reset_index(drop=True),y.loc[va].reset_index(drop=True),y.loc[te].reset_index(drop=True)
 
-def pinball(y,p):
-    e=np.asarray(y).reshape(-1,1)-p
-    return np.mean(np.maximum(Q*e,(Q-1)*e))
-
-def fit_all(Xtr,ytr,Xv,yv,Xte,reg=1e-1,lam=1):
-    preds={}
-    models=[
-        ("SQR",SQRNet,0),("RSQR",SQRNet,reg),
-        ("MQR",MQRNet,0),("RMQR",MQRNet,reg),
-        ("PMQR",PMQRNet,0),("RPMQR",PMQRNet,reg),
-        ("Mono",MonoNet,0),("RMono",MonoNet,reg),
-        ("NCMQR",NCMQRNet,0),("RNCMQR",NCMQRNet,reg)
-    ]
-
-    for name,cls,r in models:
-        m=fit(cls,Xtr,ytr,Xv,yv,reg=r,lam=lam)
-        preds[name]=pred(m,Xte)
-
-    p=preds["MQR"]
-    preds["Rearrangement"]=np.sort(p,axis=1)
+def fit_all(Xtr,ytr,Xv,yv,Xte,reg=.1,lam=1,seed=0):
+    tf.keras.utils.set_random_seed(seed)
+    specs=[("SQR",SQRNet,0),("RSQR",SQRNet,reg),("MQR",MQRNet,0),("RMQR",MQRNet,reg),("PMQR",PMQRNet,0),("RPMQR",PMQRNet,reg),("Mono",MonoNet,0),("RMono",MonoNet,reg),("NCMQR",NCMQRNet,0),("RNCMQR",NCMQRNet,reg)]
+    P={}
+    for name,cls,r in specs:
+        tf.keras.backend.clear_session()
+        P[name]=pred(fit(cls,Xtr,ytr,Xv,yv,reg=r,lam=lam),Xte)
+    p=P["MQR"]
+    P["Rearrangement"]=np.sort(p,axis=1)
     iso=IsotonicRegression(increasing=True)
-    preds["Isotonic"]=np.array([iso.fit_transform(Q,z) for z in p])
-    return preds
+    P["Isotonic"]=np.array([iso.fit_transform(Q,z) for z in p])
+    return P
 
-def crossing(p):
-    gaps=np.maximum(p[:,:-1]-p[:,1:],0)
+def crossing(p,rtol=1e-6):
+    gaps=p[:,:-1]-p[:,1:]
+    tol=rtol*np.maximum(1,np.maximum(np.abs(p[:,:-1]),np.abs(p[:,1:])))
+    gaps=np.where(gaps>tol,gaps,0.)
     crossed=gaps.sum(axis=1)>0
-    cr=crossed.mean()
-    cs=gaps[crossed].sum(axis=1).mean() if crossed.any() else 0
-    return cr,cs
+    return crossed.mean(),gaps[crossed].sum(axis=1).mean() if crossed.any() else 0.
+
 
 def q_to_cu(q,co=1):
-    q=np.asarray(q)
-    return co*q/(1-q)
+    return co*np.asarray(q)/(1-np.asarray(q))
 
 def newsvendor_cost(y,p,cu,co=1):
-    y=np.asarray(y).reshape(-1,1)
-    cu=np.asarray(cu).reshape(1,-1)
+    y=np.asarray(y).reshape(-1,1); cu=np.asarray(cu).reshape(1,-1)
     return np.where(p>=y,co*(p-y),cu*(y-p))
 
-def evaluate_all(preds,y):
+def mean_ci_str(x,digits=3):
+    x=np.asarray(x,float); x=x[np.isfinite(x)]; n=len(x)
+    if not n:return ""
+    m=x.mean(); h=t.ppf(.975,n-1)*x.std(ddof=1)/np.sqrt(n) if n>1 else 0
+    return f"{m:.{digits}f} (± {h:.{digits}f})"
+
+def wilcox_p(x,y):
+    x=np.asarray(x,float); y=np.asarray(y,float); m=np.isfinite(x)&np.isfinite(y); d=x[m]-y[m]
+    if not len(d):return np.nan
+    if np.allclose(d,0):return 1.
+    try:return float(wilcoxon(d).pvalue)
+    except ValueError:return np.nan
+
+def improvement(base,new,p=np.nan,digits=2):
+    b=np.mean(base); n=np.mean(new)
+    if not np.isfinite(b) or abs(b)<1e-12:return ""
+    s=f"{100*(b-n)/b:.{digits}f}%"
+    return rf"$\mathbf{{{s}}}$" if np.isfinite(p) and p<.05 else s
+
+def run_replications(Xtr,ytr,Xv,yv,Xte,yte,n_rep=100,reg=.1,lam=1):
+    records=[]
     cu=q_to_cu(Q)
+    for seed in range(n_rep):
+        print(f"Replication {seed+1}/{n_rep}")
+        P=fit_all(Xtr,ytr,Xv,yv,Xte,reg,lam,seed)
+        for name,p in P.items():
+            cr,cs=crossing(p)
+            records.append([seed,name,cr,cs,newsvendor_cost(yte,p,cu).mean()])
+    return pd.DataFrame(records,columns=["Rep","Model","CR","CS","Cost"])
+
+def make_tables(df):
+    models=df["Model"].unique()
+
+    cross=pd.DataFrame({
+        "Model":models,
+        "CR":[mean_ci_str(df.loc[df.Model==m,"CR"]) for m in models],
+        "CS":[mean_ci_str(df.loc[df.Model==m,"CS"]) for m in models]
+    })
+
+    means=df.groupby("Model")["Cost"].mean()
+    best_model=means.idxmin()
+    best=df.loc[df.Model==best_model].sort_values("Rep")["Cost"].to_numpy()
     rows=[]
-    for name,p in preds.items():
-        cr,sev=crossing(p)
-        cost=newsvendor_cost(y,p,cu)
-        rows.append([name,cr,sev,cost.mean()])
-    return pd.DataFrame(rows,columns=["Model","CrossRate","Severity","Cost"])
+
+    for m in models:
+        x=df.loc[df.Model==m].sort_values("Rep")["Cost"].to_numpy()
+        gap=100*(x.mean()-best.mean())/best.mean()
+        cost=mean_ci_str(x)
+        gap_str=f"{gap:.2f}%"
+
+        if m==best_model:
+            gap_str=rf"$\mathbf{{\underline{{{gap_str}}}}}$"
+            cost=rf"$\mathbf{{\underline{{{cost}}}}}$"
+        elif wilcox_p(x,best)>=.05:
+            gap_str=rf"$\mathbf{{{gap_str}}}$"
+            cost=rf"$\mathbf{{{cost}}}$"
+
+        rows.append([m,cost,gap_str])
+
+    cost=pd.DataFrame(rows,columns=["Model","Cost (95% CI)","Cost gap (%)"])
+    return cross,cost,best_model
 
 
 if __name__=="__main__":
-
-    Q=np.array([.5,.6,.7,.8,.9,.95],dtype=np.float32)
-
     X,y=load_bakery(include_date=True,one_hot_encoding=True,return_X_y=True)
-    X_train,X_val,X_test,y_train,y_val,y_test=time_split(X,y)
-    X_train,X_val,X_test=X_train.drop(columns="date"),X_val.drop(columns="date"),X_test.drop(columns="date")
-    preds=fit_all(X_train,y_train,X_val,y_val,X_test,reg=1e-1,lam=1)
+    Xtr,Xv,Xte,ytr,yv,yte=time_split(X,y)
+    Xtr,Xv,Xte=Xtr.drop(columns="date"),Xv.drop(columns="date"),Xte.drop(columns="date")
 
+    raw=run_replications(Xtr,ytr,Xv,yv,Xte,yte,n_rep=2,reg=1e-1,lam=1)
 
+    crossing_table,cost_table,best_model=make_tables(raw)
 
-    # reg=1e-1
-    # lams=[.01,.1,1,10,100]
-    # results={}
-    # for lam in lams:
-    #     m=fit(PMQRNet,X_train,y_train,X_val,y_val,reg=reg,lam=lam)
-    #     val=pinball(y_val,pred(m,X_val))
-    #     results[lam]=val
-    #     print(f"lambda={lam:g}, val pinball={val:.4f}")
-    # best_lam=min(results,key=results.get)
-    # print(f"\nBest lambda: {best_lam:g}, val pinball: {results[best_lam]:.4f}")
-
-    # '''
-    # lambda=0.01, val pinball=34.2594
-    # lambda=0.1, val pinball=34.3694
-    # lambda=1, val pinball=34.1616
-    # lambda=10, val pinball=34.3050
-    # lambda=100, val pinball=34.2979
-    # Best lambda: 1, val pinball: 34.1616
-    # '''
+    print(f"\nBest model: {best_model}")
+    print("\nCROSSING TABLE")
+    print(crossing_table.to_string(index=False))
+    print("\nCOST TABLE")
+    print(cost_table.to_string(index=False))
+    raw.to_csv("replication_results.csv",index=False)
+    crossing_table.to_csv("crossing_table.csv",index=False)
+    cost_table.to_csv("cost_table.csv",index=False)

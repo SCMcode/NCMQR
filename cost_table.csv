@@ -1,0 +1,13 @@
+Model,Cost (95% CI),Cost gap (%)
+SQR,$\mathbf{149.933 (± 28.386)}$,$\mathbf{45.81%}$
+RSQR,$\mathbf{134.246 (± 168.265)}$,$\mathbf{30.55%}$
+MQR,$\mathbf{155.789 (± 6.157)}$,$\mathbf{51.50%}$
+RMQR,$\mathbf{135.944 (± 3.922)}$,$\mathbf{32.20%}$
+PMQR,$\mathbf{155.130 (± 0.022)}$,$\mathbf{50.86%}$
+RPMQR,$\mathbf{138.450 (± 32.421)}$,$\mathbf{34.64%}$
+Mono,$\mathbf{155.307 (± 24.447)}$,$\mathbf{51.04%}$
+RMono,$\mathbf{138.715 (± 131.893)}$,$\mathbf{34.90%}$
+NCMQR,$\mathbf{147.005 (± 12.318)}$,$\mathbf{42.96%}$
+RNCMQR,$\mathbf{\underline{102.828 (± 7.419)}}$,$\mathbf{\underline{0.00%}}$
+Rearrangement,$\mathbf{155.737 (± 6.213)}$,$\mathbf{51.45%}$
+Isotonic,$\mathbf{155.764 (± 6.174)}$,$\mathbf{51.48%}$
