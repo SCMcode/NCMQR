@@ -71,9 +71,9 @@ def fit(model_class,xtr,ytr,xv,yv,lam=10,reg=0,lr=1e-3,epochs=300,patience=10,**
             def sloss(y,p,q=q):
                 e=tf.reshape(y,(-1,1))-p
                 return tf.reduce_mean(tf.maximum(q*e,(q-1)*e))
-            m.compile(tf.keras.optimizers.Adam(lr),sloss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,batch_size=256,callbacks=[es()],verbose=1); ms.append(m)
+            m.compile(tf.keras.optimizers.Adam(lr),sloss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,batch_size=256,callbacks=[es()],verbose=0); ms.append(m)
         return ms
-    m=model_class(Q,reg=reg,**kwargs); m.compile(tf.keras.optimizers.Adam(lr),loss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,callbacks=[es()],verbose=0); return m
+    m=model_class(Q,reg=reg,**kwargs); m.compile(tf.keras.optimizers.Adam(lr),loss); m.fit(xtr,ytr,validation_data=(xv,yv),epochs=epochs,batch_size=256,callbacks=[es()],verbose=0); return m
 
 def pred(m,x):
     return np.column_stack([a.predict(x,verbose=0).ravel() for a in m]) if isinstance(m,list) else m.predict(x,verbose=0)
