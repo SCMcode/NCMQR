@@ -25,8 +25,8 @@ def fit_all(Xtr,ytr,Xv,yv,Xte,reg=.1,lam=1,seed=0,only=None):
         tf.keras.backend.clear_session()
         P[name]=pred(fit(cls,Xtr,ytr,Xv,yv,reg=r,lam=lam),Xte)
 
-    if "MQR" in P:
-        p=P["MQR"]
+    if "SQR" in P:
+        p=P["SQR"]
         if only is None or "Rearrangement" in only:
             P["Rearrangement"]=np.sort(p,axis=1)
         if only is None or "Isotonic" in only:
